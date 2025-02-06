@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+import zipfile
 
 UPLOAD_FOLDER = 'uploads/'
 TRANSFORM_FOLDER = 'transformed/'
@@ -85,20 +86,36 @@ def main():
     st.title("Excel Transformer")
 
     # Upload file section
-    uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
+    uploaded_file = st.file_uploader("Upload File (Excel or Zip)", type=["xlsx", "zip"])
     if uploaded_file is not None:
         file_path = os.path.join(UPLOAD_FOLDER, uploaded_file.name)
         with open(file_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
 
-        short_names = get_short_names(file_path)
-        selected_short_names = st.multiselect("Select Short Names", short_names)
+        if uploaded_file.name.endswith(".zip"):
+            with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                zip_ref.extractall(UPLOAD_FOLDER)
+                extracted_files = [os.path.join(UPLOAD_FOLDER, f) for f in zip_ref.namelist() if f.endswith(".xlsx")]
+        else:
+            extracted_files = [file_path]
+
+        all_short_names = []
+        for excel_file in extracted_files:
+            all_short_names.extend(get_short_names(excel_file))
+
+        all_short_names = list(set(all_short_names))  # Remove duplicates
+        selected_short_names = st.multiselect("Select Short Names", all_short_names)
 
         if st.button("Transform"):
-            transformed_df = transform_data(file_path, selected_short_names)
-            if transformed_df is not None:
+            result_df = pd.DataFrame()
+            for excel_file in extracted_files:
+                transformed_df = transform_data(excel_file, selected_short_names)
+                if transformed_df is not None:
+                    result_df = pd.concat([result_df, transformed_df])
+
+            if not result_df.empty:
                 output_file = os.path.join(TRANSFORM_FOLDER, 'transformed_data.xlsx')
-                transformed_df.to_excel(output_file, index=False)
+                result_df.to_excel(output_file, index=False)
                 st.success("Transformation complete! Click below to download.")
                 with open(output_file, "rb") as f:
                     st.download_button(label="Download Transformed File", data=f, file_name="transformed_data.xlsx")
